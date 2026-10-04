@@ -1,6 +1,6 @@
-# PiKVM MCP Skills
+# PiKVM Privacy MCP Skills
 
-This directory contains human-readable guides for the MCP prompts (skills) exposed by the PiKVM MCP server. Each file corresponds to a registered MCP prompt that agents can invoke via `prompts/get`.
+This directory contains human-readable guides for the MCP prompts (skills) exposed by the pikvm-privacy MCP server. Each file corresponds to a registered MCP prompt that agents can invoke via `prompts/get`.
 
 ## Tool Guides
 
@@ -8,7 +8,8 @@ Individual tool usage guides:
 
 | Prompt Name | File | Description |
 |---|---|---|
-| `take-screenshot` | [take-screenshot.md](take-screenshot.md) | Capture screenshots with pikvm_screenshot |
+| `take-redacted-screenshot` | [take-redacted-screenshot.md](take-redacted-screenshot.md) | Capture privacy-redacted screenshots with pikvm_redacted_screenshot |
+| `manage-redaction-model` | [manage-redaction-model.md](manage-redaction-model.md) | Load and release the redaction model with pikvm_load_model / pikvm_release_model |
 | `check-resolution` | [check-resolution.md](check-resolution.md) | Check screen resolution with pikvm_get_resolution |
 | `type-text` | [type-text.md](type-text.md) | Type text with pikvm_type |
 | `send-key` | [send-key.md](send-key.md) | Send keys with pikvm_key |

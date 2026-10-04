@@ -1,24 +1,28 @@
 {
-  "name": "pikvm-mcp-server",
+  "name": "pikvm-privacy-mcp-server",
   "version": "0.2.0",
-  "description": "MCP server for controlling remote machines via PiKVM",
+  "description": "Privacy-oriented MCP server for controlling remote machines via PiKVM, with automatic screenshot redaction",
   "main": "dist/index.js",
   "bin": {
-    "pikvm-mcp-server": "dist/index.js"
+    "pikvm-privacy": "dist/index.js"
   },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "setup:redactor": "node scripts/setup-redactor.mjs"
   },
   "keywords": [
     "mcp",
     "pikvm",
     "kvm",
     "remote-control",
-    "hid"
+    "hid",
+    "privacy",
+    "redaction",
+    "pii"
   ],
   "author": "",
   "license": "MIT",

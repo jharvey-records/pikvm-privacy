@@ -14,7 +14,7 @@ Step-by-step procedure for finding and clicking a UI element.
 
 ### Step 1 — Observe
 
-Take a screenshot with `pikvm_screenshot` to see the current screen state.
+Take a screenshot with `pikvm_redacted_screenshot` to see the current screen state.
 
 ### Step 2 — Analyze
 

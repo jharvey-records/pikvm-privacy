@@ -29,38 +29,42 @@ Follow these steps to initialize a PiKVM session:
 ## Step 1 — Check Resolution
 Call \`pikvm_get_resolution\` to determine the screen size and confirm the connection is working.
 
-## Step 2 — Take Initial Screenshot
-Call \`pikvm_screenshot\` to see the current state of the remote machine. This confirms video capture is working and shows you what's on screen.
+## Step 2 — Load the Redaction Model
+Call \`pikvm_load_model\`. Screenshots are redacted before you see them, and this loads the models that do it. It can take up to a minute. If it fails, report the error — screenshots will not be available.
 
-## Step 3 — Calibrate Mouse
+## Step 3 — Take Initial Screenshot
+Call \`pikvm_redacted_screenshot\` to see the current state of the remote machine. This confirms video capture and redaction are working and shows you what's on screen. Black boxes mark redacted sensitive content.
+
+## Step 4 — Calibrate Mouse
 Run auto-calibration to ensure accurate mouse positioning.
 
 1. Call \`pikvm_auto_calibrate\` — it automatically detects the cursor and computes calibration factors.
-2. If it succeeds, calibration is applied automatically. Proceed to Step 4.
+2. If it succeeds, calibration is applied automatically. Proceed to Step 5.
 3. If it fails, fall back to manual calibration:
    1. Call \`pikvm_calibrate\` — this moves the cursor to the screen center.
-   2. Call \`pikvm_screenshot\` — visually locate the actual cursor position.
+   2. Call \`pikvm_redacted_screenshot\` — visually locate the actual cursor position.
    3. If the cursor is **not** at the center, calculate correction factors:
       - factorX = expected_x / actual_x
       - factorY = expected_y / actual_y
    4. Call \`pikvm_set_calibration\` with the calculated factors.
-   5. Call \`pikvm_screenshot\` again to verify the calibration looks correct.
+   5. Call \`pikvm_redacted_screenshot\` again to verify the calibration looks correct.
 
-## Step 4 — Verify Keyboard (optional)
+## Step 5 — Verify Keyboard (optional)
 If you will be typing:
 1. Identify a safe text input area on screen (e.g., a terminal, text editor, address bar).
 2. Click on it with \`pikvm_mouse_click\`.
 3. Type a short test string with \`pikvm_type\`.
 4. Take a screenshot to verify the text appeared correctly.
 
-## Step 5 — Report Ready
+## Step 6 — Report Ready
 Summarize:
 - Screen resolution
 - What OS/application is visible
+- Redaction model status
 - Calibration status
 - Any issues detected
 
-The session is now ready for use.`,
+The session is now ready for use. When the session is finished, call \`pikvm_release_model\` to free the redaction model's memory.`,
           },
         },
       ];
@@ -102,7 +106,7 @@ Call \`pikvm_get_resolution\` and note the width and height. The expected center
 Call \`pikvm_calibrate\`. The server moves the cursor to what it believes is the screen center and returns the expected position.
 
 ### Step 3 — Screenshot and Locate Cursor
-Call \`pikvm_screenshot\`. Find the actual cursor position in the image. The cursor is typically an arrow or crosshair.
+Call \`pikvm_redacted_screenshot\`. Find the actual cursor position in the image. The cursor is typically an arrow or crosshair.
 
 ### Step 4 — Calculate Factors
 Compute:
@@ -215,7 +219,7 @@ Move the mouse to a known UI element with \`pikvm_mouse_click\` and take a scree
 Target: **${element}**
 
 ## Step 1 — Observe
-Take a screenshot with \`pikvm_screenshot\` to see the current screen state.
+Take a screenshot with \`pikvm_redacted_screenshot\` to see the current screen state.
 
 ## Step 2 — Analyze
 Examine the screenshot and locate **${element}**. Identify its approximate center coordinates in pixels.
@@ -273,7 +277,7 @@ If the click missed, adjust coordinates and retry. If calibration seems off, run
 Target: **${form}**
 
 ## Step 1 — Screenshot and Identify Fields
-Call \`pikvm_screenshot\` and identify all input fields, their labels, current values, and positions.
+Call \`pikvm_redacted_screenshot\` and identify all input fields, their labels, current values, and positions.
 
 ## Step 2 — For Each Field
 Repeat for every field that needs to be filled:
@@ -338,7 +342,7 @@ Use an **Observe-Plan-Act-Verify** loop until the goal is achieved.
 ## The Loop
 
 ### Observe
-Take a screenshot with \`pikvm_screenshot\`. Identify:
+Take a screenshot with \`pikvm_redacted_screenshot\`. Identify:
 - What OS / desktop environment is running (Windows, macOS, Linux/GNOME, Linux/KDE, etc.)
 - What applications/windows are currently open
 - Where relevant UI elements are (taskbar, dock, menus, desktop icons)
@@ -371,7 +375,7 @@ Execute the planned action using the appropriate PiKVM tool:
 Take another screenshot to confirm the action had the expected effect. If not, reassess and try an alternative approach.
 
 ## Repeat
-Continue the Observe-Plan-Act-Verify loop until the goal **${goal}** is achieved. If you get stuck, try a different approach (e.g., use keyboard shortcuts instead of mouse, or use a terminal command instead of the GUI).`,
+Continue the Observe-Plan-Act-Verify loop until the goal **${goal}** is achieved. If \`pikvm_redacted_screenshot\` reports that the redaction model is not loaded, call \`pikvm_load_model\` and retry. If you get stuck, try a different approach (e.g., use keyboard shortcuts instead of mouse, or use a terminal command instead of the GUI).`,
           },
         },
       ];

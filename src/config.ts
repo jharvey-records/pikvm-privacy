@@ -8,6 +8,7 @@
 import { config as loadEnv } from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { REDACTION_STYLES, RedactionStyle, RedactorConfig } from './redactor/sidecar.js';
 
 // Load .env file from project root
 // - quiet: true prevents stdout output that would corrupt MCP protocol
@@ -29,6 +30,7 @@ export interface Config {
     verifyRounds: number;
     moveDelayMs: number;
   };
+  redactor: RedactorConfig;
 }
 
 export function loadConfig(): Config {
@@ -55,5 +57,26 @@ export function loadConfig(): Config {
       verifyRounds: parseInt(process.env.PIKVM_CALIBRATION_VERIFY_ROUNDS || '5', 10),
       moveDelayMs: parseInt(process.env.PIKVM_CALIBRATION_MOVE_DELAY || '300', 10),
     },
+    redactor: loadRedactorConfig(),
+  };
+}
+
+function loadRedactorConfig(): RedactorConfig {
+  const style = (process.env.PIKVM_REDACTOR_STYLE || 'black box') as RedactionStyle;
+  if (!REDACTION_STYLES.includes(style)) {
+    throw new Error(`PIKVM_REDACTOR_STYLE must be one of: ${REDACTION_STYLES.join(', ')}`);
+  }
+  const categories = process.env.PIKVM_REDACTOR_CATEGORIES
+    ?.split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  return {
+    pythonPath: process.env.PIKVM_REDACTOR_PYTHON || undefined,
+    categories: categories?.length ? categories : undefined,
+    style,
+    useNer: process.env.PIKVM_REDACTOR_USE_NER !== 'false',
+    loadTimeoutMs: parseInt(process.env.PIKVM_REDACTOR_LOAD_TIMEOUT_MS || '180000', 10),
+    redactTimeoutMs: parseInt(process.env.PIKVM_REDACTOR_TIMEOUT_MS || '60000', 10),
   };
 }

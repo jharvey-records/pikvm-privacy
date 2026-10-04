@@ -38,3 +38,7 @@ test_prompt.txt
 .mcp.json
 .claude
 CLAUDE.md
+
+# Redactor Python environment
+.venv-redactor/
+__pycache__/

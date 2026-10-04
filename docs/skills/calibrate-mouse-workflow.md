@@ -24,7 +24,7 @@ Call `pikvm_calibrate`. The server moves the cursor to what it believes is the s
 
 ### Step 3 — Screenshot and Locate Cursor
 
-Call `pikvm_screenshot`. Find the actual cursor position in the image. The cursor is typically an arrow or crosshair.
+Call `pikvm_redacted_screenshot`. Find the actual cursor position in the image. The cursor is typically an arrow or crosshair.
 
 ### Step 4 — Calculate Factors
 

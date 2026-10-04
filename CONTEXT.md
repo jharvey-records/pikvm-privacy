@@ -48,10 +48,12 @@ PiKVM supports multiple keyboard layouts (keymaps) for the paste-as-keys feature
 
 ### Implemented Tools
 
-1. **`pikvm_screenshot`**
-   - Capture current screen from video stream
-   - Returns image for visual analysis
+1. **`pikvm_redacted_screenshot`** (replaces the upstream `pikvm_screenshot`)
+   - Capture current screen from video stream at full resolution
+   - Redact sensitive content via the screenshot-redactor Python sidecar, then optionally downscale
+   - Returns the redacted image for visual analysis; fails closed (error, never the raw image) if redaction fails
    - Endpoint: `/api/streamer/snapshot`
+   - Requires `pikvm_load_model` to have been called; `pikvm_release_model` frees the models
 
 2. **`pikvm_type`**
    - Type text using paste-as-keys API
@@ -89,7 +91,9 @@ The MCP server will need:
 
 ### Technology Stack
 
-TypeScript/Node.js was chosen for the implementation, using the official MCP SDK (`@modelcontextprotocol/sdk`), `undici` for HTTP requests, and `image-size` for screenshot dimension detection.
+TypeScript/Node.js was chosen for the implementation, using the official MCP SDK (`@modelcontextprotocol/sdk`), `undici` for HTTP requests, and `sharp` for screenshot dimension detection and resizing.
+
+Screenshot redaction uses [cleanroom-ai/screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor) (Apache-2.0), vendored as a git submodule and run in a long-lived Python 3.11+ sidecar (`python/redact_server.py`) so its models (RapidOCR, GLiNER `urchade/gliner_multi_pii-v1`, YuNet) stay loaded between screenshots.
 
 ## Research Sources
 
@@ -103,7 +107,7 @@ TypeScript/Node.js was chosen for the implementation, using the official MCP SDK
 
 All planned tools have been implemented and tested:
 
-1. Screenshot capture with automatic coordinate scaling
+1. Redacted screenshot capture with automatic coordinate scaling
 2. Text typing via paste-as-keys API with keymap support
 3. Individual key events and keyboard shortcuts
 4. Mouse movement (absolute and relative), clicking, and scrolling

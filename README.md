@@ -1,13 +1,6 @@
-# PiKVM MCP Server
+# pikvm-privacy
 
-
-[![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=kultivator-consulting_pikvm_mcp_server)
-
-
-[![MCP Badge](https://lobehub.com/badge/mcp/kultivatorconsulting-pikvm_mcp_server?style=plastic)](https://lobehub.com/mcp/kultivatorconsulting-pikvm_mcp_server)
-
-
-
+A privacy-oriented fork of [PiKVM MCP Server](https://github.com/KultivatorConsulting/pikvm_mcp_server) by Kultivator Consulting. Every screenshot the AI sees is first passed through [cleanroom-ai/screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor), which blacks out secrets, personal data and faces before the image leaves the server. See [Privacy](#privacy) below.
 
 Give AI agents hands. This MCP server connects Claude Code (or any MCP client) directly to a [PiKVM](https://pikvm.org/) device, giving AI full keyboard, mouse, and screen access to a physical machine -- no browser automation, no virtual desktops, no emulators.
 
@@ -36,6 +29,8 @@ This is the first IP-KVM tooling — commercial or open source — to implement 
 
 ### See it in action
 
+> The demo videos below were recorded with the upstream PiKVM MCP Server, before screenshot redaction was added.
+
 The video below shows Claude Code using this MCP server to autonomously interact with a Raspberry Pi desktop: taking a screenshot to identify the OS, opening a text editor from the menu, typing text, and closing the application -- all through the PiKVM hardware interface.
 
 [![Demo Video](https://img.youtube.com/vi/VYE8O1gAs7s/0.jpg)](https://youtu.be/VYE8O1gAs7s)
@@ -47,17 +42,46 @@ This next demonstration shows Claude, connected via the PiKVM MCP server, respon
 ## Features
 
 - **Automatic mouse calibration** — Vision-based cursor detection computes coordinate correction factors with no manual measurement. The first fully automated calibration for IP-KVM.
-- **Screenshot capture** — Get current screen as JPEG image
+- **Redacted screenshot capture** — Get current screen as JPEG image, with secrets, PII and faces blacked out before it is returned
 - **Text typing** — Type text with proper special character handling via keymaps
 - **Keyboard control** — Send individual keys or key combinations (e.g., Ctrl+Alt+Delete)
 - **Mouse control** — Move, click, and scroll with calibrated coordinate correction
 
+## Privacy
+
+The original server returned raw screenshots to the MCP client, which means anything on the remote screen (passwords, API keys, customer data, faces) ends up in the AI model's context. This fork removes that path:
+
+- **There is no unredacted screenshot tool.** `pikvm_screenshot` has been replaced by `pikvm_redacted_screenshot`.
+- **Redaction runs locally.** A Python sidecar process on the MCP server host runs the [screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor) pipeline: RapidOCR text recognition, secret/PII rules and checksums, the GLiNER PII model ([`urchade/gliner_multi_pii-v1`](https://huggingface.co/urchade/gliner_multi_pii-v1)) for names and addresses, YuNet face detection, and QR/barcode detection. Images are not sent to any third-party service for redaction.
+- **Redaction happens at full resolution**, before any downscaling requested via `maxWidth`/`maxHeight`.
+- **Fails closed.** If the model isn't loaded, or the sidecar crashes, times out or returns an error, the tool returns an error — never the unredacted image. `pikvm_load_model` also refuses to start if the GLiNER model can't load, rather than silently falling back to rules-only name/address detection (set `PIKVM_REDACTOR_USE_NER=false` to allow that explicitly).
+- **No detected text is returned.** Tool responses report only per-category counts, never the redacted values.
+- **Auto-calibration** still diffs raw screenshots internally to find the cursor, but those images never leave the server.
+
+### Limits
+
+Redaction is best-effort. Detection depends on OCR reading the text correctly and on the rules or NER model recognising it as sensitive, so things can be missed — small, low-contrast, stylised or partially obscured text is the most likely to slip through. For example, in testing a private IP address (`192.168.10.45`) was not redacted. It can also over-redact harmless text that looks like a name or token. Treat it as a strong safety net, not a guarantee, and avoid pointing the AI at screens containing material that must never be disclosed. Prefer the default `black box` style — blur and pixelation are not considered safe for text.
+
 ## Installation
 
+Requires **Node.js 18+** and **Python 3.11+** (the redactor's `onnxruntime` dependency has no Python 3.10 wheels).
+
 ```bash
+git clone --recursive https://github.com/jharvey-records/pikvm-privacy.git
+cd pikvm-privacy
 npm install
 npm run build
+npm run setup:redactor
 ```
+
+`npm run setup:redactor` (see [`scripts/setup-redactor.mjs`](scripts/setup-redactor.mjs)):
+
+1. Initialises the `vendor/screenshot-redactor` git submodule if you cloned without `--recursive`
+2. Creates a `.venv-redactor` virtual environment using a Python >= 3.11 interpreter (set `PIKVM_REDACTOR_BASE_PYTHON` to choose one explicitly)
+3. Installs [`python/requirements.txt`](python/requirements.txt) (RapidOCR, ONNX Runtime, OpenCV, GLiNER, CPU-only PyTorch)
+4. Pre-downloads the GLiNER model weights so the first `pikvm_load_model` is fast
+
+The server uses `.venv-redactor` automatically; set `PIKVM_REDACTOR_PYTHON` to use a different interpreter.
 
 ## Configuration
 
@@ -76,6 +100,26 @@ PIKVM_VERIFY_SSL=false
 PIKVM_DEFAULT_KEYMAP=en-us
 ```
 
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PIKVM_HOST` | *(required)* | PiKVM URL, e.g. `https://<your-pikvm-ip>` |
+| `PIKVM_PASSWORD` | *(required)* | PiKVM password |
+| `PIKVM_USERNAME` | `admin` | PiKVM username |
+| `PIKVM_VERIFY_SSL` | `false` | Verify SSL certificates (PiKVM usually uses a self-signed cert) |
+| `PIKVM_DEFAULT_KEYMAP` | `en-us` | Default keyboard layout for `pikvm_type` |
+| `PIKVM_CALIBRATION_ROUNDS` | `5` | Auto-calibration sampling rounds |
+| `PIKVM_CALIBRATION_VERIFY_ROUNDS` | `5` | Auto-calibration verification rounds |
+| `PIKVM_CALIBRATION_MOVE_DELAY` | `300` | Delay (ms) after each mouse move during auto-calibration |
+| `PIKVM_REDACTOR_PYTHON` | `.venv-redactor` Python in the package root | Python interpreter used to run the redaction sidecar |
+| `PIKVM_REDACTOR_CATEGORIES` | all | Comma-separated categories to redact: `secrets`, `contact`, `financial`, `government_id`, `network`, `person`, `location`, `dates`, `faces`, `codes` |
+| `PIKVM_REDACTOR_STYLE` | `black box` | Default redaction style: `black box`, `pixelate` or `blur` |
+| `PIKVM_REDACTOR_USE_NER` | `true` | Use the GLiNER model for names/addresses. When `true`, `pikvm_load_model` fails if GLiNER can't load; `false` allows rules-only detection |
+| `PIKVM_REDACTOR_LOAD_TIMEOUT_MS` | `180000` | Timeout (ms) for `pikvm_load_model` |
+| `PIKVM_REDACTOR_TIMEOUT_MS` | `60000` | Timeout (ms) for redacting a single screenshot |
+| `REDACTOR_NER_MODEL` | `urchade/gliner_multi_pii-v1` | Read by the upstream redactor to override the GLiNER model |
+
 ## Usage with Claude Code
 
 > **Requires Node.js 18+.** This server uses ES modules. If `node --version` shows an older version, replace `"command": "node"` with the full path to a compatible binary (e.g. `"/usr/local/bin/node"` or your nvm path like `"~/.nvm/versions/node/v22.x.x/bin/node"`). This is common when nvm's default alias points to an older version.
@@ -85,9 +129,9 @@ Add to your Claude Code MCP settings (`~/.config/claude-code/settings.json` or v
 ```json
 {
   "mcpServers": {
-    "pikvm": {
+    "pikvm-privacy": {
       "command": "node",
-      "args": ["/path/to/pikvm_mcp_server/dist/index.js"],
+      "args": ["/path/to/pikvm-privacy/dist/index.js"],
       "env": {
         "PIKVM_HOST": "https://<your-pikvm-ip>",
         "PIKVM_USERNAME": "admin",
@@ -103,19 +147,25 @@ Or if using the .env file:
 ```json
 {
   "mcpServers": {
-    "pikvm": {
+    "pikvm-privacy": {
       "command": "node",
-      "args": ["/path/to/pikvm_mcp_server/dist/index.js"]
+      "args": ["/path/to/pikvm-privacy/dist/index.js"]
     }
   }
 }
 ```
 
+The package also exposes a `pikvm-privacy` bin (e.g. after `npm link`), which can be used as the `command` instead of `node /path/to/pikvm-privacy/dist/index.js`.
+
 ## Available Tools
 
 ### Display
-- **`pikvm_screenshot`** - Capture current screen as JPEG (optional: maxWidth, maxHeight, quality)
+- **`pikvm_redacted_screenshot`** - Capture current screen as JPEG with sensitive content redacted (optional: maxWidth, maxHeight, quality, style). Requires the redaction model to be loaded
 - **`pikvm_get_resolution`** - Get screen resolution and valid coordinate ranges
+
+### Redaction Model
+- **`pikvm_load_model`** - Start the redaction sidecar and load the OCR, PII (GLiNER) and face detection models (~12s once weights are cached, longer on first run while they download; uses around 2 GB of RAM; safe to call when already loaded)
+- **`pikvm_release_model`** - Stop the redaction sidecar and free its memory
 
 ### Keyboard
 - **`pikvm_type`** - Type text with keymap-aware special character handling (required: text; optional: keymap, slow, delay)
@@ -136,7 +186,7 @@ Or if using the .env file:
 
 ## Skills (Prompts & Skill Tools)
 
-The server exposes 15 skills that provide structured guidance for agents. Each skill is available via **two discovery paths**:
+The server exposes 16 skills that provide structured guidance for agents. Each skill is available via **two discovery paths**:
 
 - **MCP Prompts** — `prompts/list` / `prompts/get` for clients that support the Prompts capability.
 - **Skill Tools** — `tools/list` / `tools/call` as `skill_*` read-only tools, ensuring visibility in marketplaces (e.g. LobeHub) that index tools only.
@@ -145,7 +195,8 @@ The server exposes 15 skills that provide structured guidance for agents. Each s
 
 | Prompt Name | Skill Tool | Description |
 |---|---|---|
-| `take-screenshot` | `skill_take_screenshot` | Capturing screenshots with pikvm_screenshot |
+| `take-redacted-screenshot` | `skill_take_redacted_screenshot` | Capturing privacy-redacted screenshots with pikvm_redacted_screenshot |
+| `manage-redaction-model` | `skill_manage_redaction_model` | Loading and releasing the redaction model with pikvm_load_model / pikvm_release_model |
 | `check-resolution` | `skill_check_resolution` | Checking screen resolution with pikvm_get_resolution |
 | `type-text` | `skill_type_text` | Typing text with pikvm_type |
 | `send-key` | `skill_send_key` | Sending keys with pikvm_key |
@@ -159,7 +210,7 @@ The server exposes 15 skills that provide structured guidance for agents. Each s
 
 | Prompt Name | Skill Tool | Arguments | Description |
 |---|---|---|---|
-| `setup-session-workflow` | `skill_setup_session_workflow` | — | Initialize a PiKVM session |
+| `setup-session-workflow` | `skill_setup_session_workflow` | — | Initialize a PiKVM session (resolution, redaction model, screenshot, calibration) |
 | `calibrate-mouse-workflow` | `skill_calibrate_mouse_workflow` | — | Calibrate mouse coordinates |
 | `click-ui-element-workflow` | `skill_click_ui_element_workflow` | `element_description` (required) | Find and click a UI element |
 | `fill-form-workflow` | `skill_fill_form_workflow` | `form_description` (optional) | Fill in a form on screen |
@@ -179,6 +230,11 @@ Common key codes for `pikvm_key` and `pikvm_shortcut`:
 - Special: `Enter`, `Escape`, `Backspace`, `Tab`, `Space`, `Delete`, `Insert`, `Home`, `End`, `PageUp`, `PageDown`
 - Arrows: `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`
 
+## Credits
+
+- [PiKVM MCP Server](https://github.com/KultivatorConsulting/pikvm_mcp_server) by Kultivator Consulting — the upstream project this fork is based on, including the auto-calibration feature.
+- [screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor) by cleanroom-ai — the redaction pipeline, vendored as a git submodule at `vendor/screenshot-redactor`. Licensed under Apache-2.0.
+
 ## License
 
-GPL-3.0 - See [LICENSE](LICENSE) for details.
+GPL-3.0 - See [LICENSE](LICENSE) for details. The vendored screenshot-redactor is licensed separately under Apache-2.0 (see `vendor/screenshot-redactor/LICENSE`).

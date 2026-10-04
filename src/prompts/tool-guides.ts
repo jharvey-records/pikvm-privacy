@@ -5,43 +5,92 @@
 import type { PromptDefinition } from './types.js';
 
 export const toolGuidePrompts: PromptDefinition[] = [
-  // ---------- take-screenshot ----------
+  // ---------- take-redacted-screenshot ----------
   {
-    name: 'take-screenshot',
-    description: 'Guide for capturing screenshots with pikvm_screenshot',
+    name: 'take-redacted-screenshot',
+    description: 'Guide for capturing privacy-redacted screenshots with pikvm_redacted_screenshot',
     getMessages() {
       return [
         {
           role: 'assistant',
           content: {
             type: 'text',
-            text: `# pikvm_screenshot — Capture a Screenshot
+            text: `# pikvm_redacted_screenshot — Capture a Redacted Screenshot
 
 ## Purpose
-Capture the current screen of the remote machine as a JPEG image. This is your primary way to **see** what is on screen.
+Capture the current screen of the remote machine as a JPEG image, with sensitive content blacked out before the image is returned. This is your primary way to **see** what is on screen. There is no unredacted screenshot tool.
+
+Redacted categories (configurable by the server operator): secrets (API keys, tokens, passwords), contact details (emails, phone numbers, usernames), financial data, government IDs, IP/MAC addresses, people's names, street addresses, dates of birth, faces, and QR codes/barcodes.
+
+## Prerequisite
+The redaction model must be loaded. Call \`pikvm_load_model\` once at the start of a session. If it is not loaded, this tool returns an error and no image.
 
 ## Parameters
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| maxWidth | number | *(native)* | Maximum width in pixels — image is scaled down if the screen is wider |
-| maxHeight | number | *(native)* | Maximum height in pixels — image is scaled down if the screen is taller |
-| quality | number | 80 | JPEG quality (1-100) |
+| maxWidth | number | *(native)* | Maximum width in pixels — image is scaled down after redaction if the screen is wider |
+| maxHeight | number | *(native)* | Maximum height in pixels — image is scaled down after redaction if the screen is taller |
+| quality | number | 80 | JPEG quality (1-100) used when scaling down |
+| style | string | black box | Redaction style: \`black box\`, \`pixelate\` or \`blur\` |
 
-Scaling preserves aspect ratio. When you scale a screenshot, the server tracks the scale factor so that mouse coordinates you derive from the image are automatically mapped back to native resolution.
+Redaction always runs on the full-resolution capture, so scaling never weakens it. Scaling preserves aspect ratio, and the server tracks the scale factor so that mouse coordinates you derive from the image are automatically mapped back to native resolution.
 
 ## Example Call
 \`\`\`json
 {
-  "name": "pikvm_screenshot",
+  "name": "pikvm_redacted_screenshot",
   "arguments": { "maxWidth": 1280, "quality": 70 }
 }
 \`\`\`
 
 ## Tips
-- Omit maxWidth/maxHeight to get the full native resolution — best for reading small text.
-- Use lower quality (50-60) when you only need layout/position information to save bandwidth.
+- Each call takes a second or more because OCR and entity recognition run on every capture.
+- Redacted regions appear as solid black boxes. Treat them as content you are not meant to read — do not try to infer or reconstruct it.
+- Redaction can also cover non-sensitive text (e.g. a label that looks like a name). If a UI element you need is hidden, navigate by its surroundings instead.
 - Always take a screenshot **after** performing an action to verify the result.
-- The response includes a text line describing dimensions and any scaling that was applied.`,
+- The response includes a text line describing dimensions, any scaling, and how many items of each category were redacted.`,
+          },
+        },
+      ];
+    },
+  },
+
+  // ---------- manage-redaction-model ----------
+  {
+    name: 'manage-redaction-model',
+    description: 'Guide for loading and releasing the screenshot redaction model with pikvm_load_model and pikvm_release_model',
+    getMessages() {
+      return [
+        {
+          role: 'assistant',
+          content: {
+            type: 'text',
+            text: `# pikvm_load_model / pikvm_release_model — Manage the Redaction Model
+
+## Purpose
+\`pikvm_redacted_screenshot\` relies on OCR, PII entity recognition and face detection models that run in a separate Python process on the MCP server host. These tools control when that process — and the memory it uses (around 2 GB) — exists.
+
+## pikvm_load_model
+Starts the redaction process and loads every model. Takes roughly 10-60 seconds (longer the very first time, when the model weights are downloaded). Safe to call repeatedly — if the model is already loaded it returns immediately.
+
+The response reports the load time, the categories that will be redacted, and whether the name/address model is active.
+
+## pikvm_release_model
+Stops the redaction process and frees its memory. After this, \`pikvm_redacted_screenshot\` returns an error until \`pikvm_load_model\` is called again.
+
+## Example Calls
+\`\`\`json
+{ "name": "pikvm_load_model", "arguments": {} }
+\`\`\`
+\`\`\`json
+{ "name": "pikvm_release_model", "arguments": {} }
+\`\`\`
+
+## Tips
+- Load the model at the start of a session (see the setup-session workflow) rather than waiting for the first screenshot to fail.
+- Release the model when you are finished with the remote machine, or when you will not need screenshots for a long time.
+- If the redaction process crashes, the model is marked as unloaded and screenshots fail safely; call \`pikvm_load_model\` again to recover.
+- Loading fails (rather than silently degrading) if a required model cannot be loaded.`,
           },
         },
       ];

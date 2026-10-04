@@ -12,12 +12,12 @@ import { allPrompts, getPromptByName } from './index.js';
 // Name conversion helpers
 // ============================================================================
 
-/** 'take-screenshot' → 'skill_take_screenshot' */
+/** 'take-redacted-screenshot' → 'skill_take_redacted_screenshot' */
 function promptNameToToolName(name: string): string {
   return 'skill_' + name.replace(/-/g, '_');
 }
 
-/** 'skill_take_screenshot' → 'take-screenshot' */
+/** 'skill_take_redacted_screenshot' → 'take-redacted-screenshot' */
 function toolNameToPromptName(name: string): string {
   return name.slice('skill_'.length).replace(/_/g, '-');
 }

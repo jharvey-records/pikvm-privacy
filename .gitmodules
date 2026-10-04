@@ -1,0 +1,3 @@
+[submodule "vendor/screenshot-redactor"]
+	path = vendor/screenshot-redactor
+	url = https://github.com/cleanroom-ai/screenshot-redactor.git

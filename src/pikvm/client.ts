@@ -224,6 +224,21 @@ export class PiKVMClient {
   }
 
   /**
+   * Update coordinate scaling for an image that was resized after capture,
+   * so mouse coordinates read from that image map back to the real screen.
+   */
+  setScreenshotDimensions(width: number, height: number): { scaleX: number; scaleY: number } {
+    if (!this.cachedResolution) {
+      throw new Error('Screen resolution unknown; take a screenshot first');
+    }
+    this.screenshotScale = {
+      scaleX: this.cachedResolution.width / width,
+      scaleY: this.cachedResolution.height / height,
+    };
+    return this.screenshotScale;
+  }
+
+  /**
    * Get current screen resolution from the video streamer
    */
   async getResolution(forceRefresh = false): Promise<ScreenResolution> {

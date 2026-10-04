@@ -1,0 +1,11 @@
+# Runtime dependencies of vendor/screenshot-redactor/python, minus the Gradio UI.
+# Versions track the upstream requirements.txt.
+--extra-index-url https://download.pytorch.org/whl/cpu
+rapidocr==3.9.2
+onnxruntime==1.30.0
+opencv-python-headless==5.0.0.93
+pillow>=11
+numpy>=2
+gliner==0.2.29
+regex>=2024.1
+torch==2.14.0

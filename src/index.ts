@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * PiKVM MCP Server
+ * PiKVM Privacy MCP Server
  *
  * Provides MCP tools for controlling remote machines via PiKVM.
+ * Screenshots are redacted for sensitive content before they reach the agent.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -20,9 +21,12 @@ import { allPrompts, getPromptByName } from './prompts/index.js';
 import { skillTools, isSkillTool, handleSkillToolCall } from './prompts/skill-tools.js';
 import { BusyLock } from './pikvm/lock.js';
 import { autoCalibrateWithRetries } from './pikvm/auto-calibrate.js';
+import { RedactorSidecar, REDACTION_STYLES, RedactionStyle } from './redactor/sidecar.js';
+import sharp from 'sharp';
 
 // Defer initialization to main() for proper error handling
 let pikvm: PiKVMClient;
+let redactor: RedactorSidecar;
 let calibrationConfig: { rounds: number; verifyRounds: number; moveDelayMs: number };
 const lock = new BusyLock();
 
@@ -121,24 +125,45 @@ const VALID_KEY_STATES = ['press', 'release', 'click'] as const;
 // Define available tools
 const tools: Tool[] = [
   {
-    name: 'pikvm_screenshot',
-    description: 'Capture a screenshot from the PiKVM video stream. Returns the current screen as a JPEG image.',
+    name: 'pikvm_redacted_screenshot',
+    description: 'Capture a screenshot from the PiKVM video stream with sensitive content (secrets, API keys, passwords, emails, phone numbers, financial and government IDs, IP addresses, names, street addresses, dates of birth, faces, QR codes) redacted before it is returned. Returns a JPEG image. Requires the redaction model: call pikvm_load_model first.',
     inputSchema: {
       type: 'object',
       properties: {
         maxWidth: {
           type: 'number',
-          description: 'Maximum width of the screenshot in pixels (optional, for preview)',
+          description: 'Maximum width of the returned screenshot in pixels (optional). Redaction always runs at full resolution first.',
         },
         maxHeight: {
           type: 'number',
-          description: 'Maximum height of the screenshot in pixels (optional, for preview)',
+          description: 'Maximum height of the returned screenshot in pixels (optional). Redaction always runs at full resolution first.',
         },
         quality: {
           type: 'number',
-          description: 'JPEG quality 1-100 (optional, default 80)',
+          description: 'JPEG quality 1-100 when downscaling (optional, default 80)',
+        },
+        style: {
+          type: 'string',
+          enum: [...REDACTION_STYLES],
+          description: 'Redaction style (optional, defaults to PIKVM_REDACTOR_STYLE or "black box")',
         },
       },
+    },
+  },
+  {
+    name: 'pikvm_load_model',
+    description: 'Load the screenshot redaction models (OCR, PII entity recognition, face detection) into memory. Required before pikvm_redacted_screenshot. Takes roughly 10-60 seconds the first time. Safe to call when already loaded.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'pikvm_release_model',
+    description: 'Release the screenshot redaction models from memory. pikvm_redacted_screenshot will be unavailable until pikvm_load_model is called again.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
     },
   },
   {
@@ -283,7 +308,7 @@ const tools: Tool[] = [
   },
   {
     name: 'pikvm_calibrate',
-    description: 'Start mouse coordinate calibration. Moves cursor to screen center and returns expected position. Take a screenshot after calling this to visually verify actual cursor position, then call pikvm_set_calibration with calculated factors.',
+    description: 'Start mouse coordinate calibration. Moves cursor to screen center and returns expected position. Take a screenshot (pikvm_redacted_screenshot) after calling this to visually verify actual cursor position, then call pikvm_set_calibration with calculated factors.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -428,20 +453,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     switch (name) {
-      case 'pikvm_screenshot': {
-        const result = await pikvm.screenshot({
-          maxWidth: validateNumber(args.maxWidth, 1, 10000),
-          maxHeight: validateNumber(args.maxHeight, 1, 10000),
-          quality: validateNumber(args.quality, 1, 100),
-        });
+      case 'pikvm_redacted_screenshot': {
+        if (!redactor.isLoaded()) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Redaction model is not loaded. Call pikvm_load_model first, then retry pikvm_redacted_screenshot.',
+              },
+            ],
+            isError: true,
+          };
+        }
 
-        // Build informative message about the screenshot
-        let infoText = `Screenshot captured (${result.screenshotWidth}x${result.screenshotHeight}`;
-        if (result.scaleX !== 1 || result.scaleY !== 1) {
-          infoText += `, scaled from ${result.actualWidth}x${result.actualHeight}`;
-          infoText += `, scale factor: ${result.scaleX.toFixed(2)}x${result.scaleY.toFixed(2)}`;
+        const styleArg = validateString(args.style);
+        if (styleArg !== undefined && !REDACTION_STYLES.includes(styleArg as RedactionStyle)) {
+          throw new Error(`style must be one of: ${REDACTION_STYLES.join(', ')}`);
+        }
+        const maxWidth = validateNumber(args.maxWidth, 1, 10000);
+        const maxHeight = validateNumber(args.maxHeight, 1, 10000);
+        const quality = validateNumber(args.quality, 1, 100) ?? 80;
+
+        // Always capture and redact at full resolution: OCR on a downscaled preview misses text.
+        // Any failure below throws, so the raw capture never reaches the agent.
+        const capture = await pikvm.screenshot();
+        const redacted = await redactor.redact(capture.buffer, styleArg as RedactionStyle | undefined);
+
+        let image = redacted.buffer;
+        let width = redacted.width;
+        let height = redacted.height;
+        if (maxWidth || maxHeight) {
+          const { data, info } = await sharp(image)
+            .resize({ width: maxWidth, height: maxHeight, fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality })
+            .toBuffer({ resolveWithObject: true });
+          image = data;
+          width = info.width;
+          height = info.height;
+        }
+        const scale = pikvm.setScreenshotDimensions(width, height);
+
+        let infoText = `Redacted screenshot captured (${width}x${height}`;
+        if (scale.scaleX !== 1 || scale.scaleY !== 1) {
+          infoText += `, scaled from ${capture.actualWidth}x${capture.actualHeight}`;
+          infoText += `, scale factor: ${scale.scaleX.toFixed(2)}x${scale.scaleY.toFixed(2)}`;
         }
         infoText += '). Mouse coordinates from this image will be auto-scaled.';
+
+        const counts = Object.entries(redacted.counts);
+        const total = counts.reduce((sum, [, n]) => sum + n, 0);
+        infoText += total
+          ? `\nRedacted ${total} item(s): ${counts.map(([c, n]) => `${c.replace('_', ' ')} ${n}`).join(', ')}.`
+          : '\nNo sensitive content detected.';
 
         return {
           content: [
@@ -451,8 +514,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
             {
               type: 'image',
-              data: result.buffer.toString('base64'),
+              data: image.toString('base64'),
               mimeType: 'image/jpeg',
+            },
+          ],
+        };
+      }
+
+      case 'pikvm_load_model': {
+        const result = await redactor.load();
+        const text = result.alreadyLoaded
+          ? 'Redaction model is already loaded.'
+          : `Redaction model loaded in ${(result.loadMs / 1000).toFixed(1)}s.`;
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `${text}\nCategories: ${result.categories.join(', ')}\n` +
+                `Name/address model: ${result.nerLoaded ? 'loaded' : 'disabled (rules only)'}`,
+            },
+          ],
+        };
+      }
+
+      case 'pikvm_release_model': {
+        const released = await redactor.release();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: released
+                ? 'Redaction model released from memory.'
+                : 'Redaction model was not loaded.',
             },
           ],
         };
@@ -735,6 +829,19 @@ async function main() {
   const config = loadConfig();
   pikvm = new PiKVMClient(config.pikvm);
   calibrationConfig = config.calibration;
+  redactor = new RedactorSidecar(config.redactor);
+
+  // Don't leave the Python process (and its memory) behind when the server stops
+  process.on('exit', () => redactor.killSync());
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      redactor.release().finally(() => process.exit(0));
+    });
+  }
+  // The sidecar's pipes keep the event loop alive, so exit explicitly when the MCP client goes away
+  process.stdin.on('close', () => {
+    redactor.release().finally(() => process.exit(0));
+  });
 
   // Verify connection on startup
   const authOk = await pikvm.checkAuth();
@@ -744,7 +851,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('PiKVM MCP Server running');
+  console.error('PiKVM Privacy MCP Server running');
 }
 
 main().catch((error) => {

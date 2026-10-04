@@ -14,7 +14,7 @@ Step-by-step procedure for filling in a form on screen.
 
 ### Step 1 — Screenshot and Identify Fields
 
-Call `pikvm_screenshot` and identify all input fields, their labels, current values, and positions.
+Call `pikvm_redacted_screenshot` and identify all input fields, their labels, current values, and positions.
 
 ### Step 2 — For Each Field
 

@@ -20,6 +20,8 @@ None.
 6. Computes calibration factors from median of detected/expected ratios
 7. Verifies by moving to random targets and checking accuracy
 
+The screenshots used for diffing are raw (unredacted) captures, but they are only processed inside the server and are never returned to the client.
+
 ## Parameters
 
 | Parameter | Type | Default | Description |
