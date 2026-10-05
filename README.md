@@ -43,6 +43,7 @@ This next demonstration shows Claude, connected via the PiKVM MCP server, respon
 
 - **Automatic mouse calibration** — Vision-based cursor detection computes coordinate correction factors with no manual measurement. The first fully automated calibration for IP-KVM.
 - **Redacted screenshot capture** — Get current screen as JPEG image, with secrets, PII and faces blacked out before it is returned
+- **Redacted screen text** — For models without vision (e.g. many self-hosted open-source models): read the screen via PiKVM's OCR, with secrets and PII replaced by placeholders before it is returned
 - **Text typing** — Type text with proper special character handling via keymaps
 - **Keyboard control** — Send individual keys or key combinations (e.g., Ctrl+Alt+Delete)
 - **Mouse control** — Move, click, and scroll with calibrated coordinate correction
@@ -52,15 +53,16 @@ This next demonstration shows Claude, connected via the PiKVM MCP server, respon
 The original server returned raw screenshots to the MCP client, which means anything on the remote screen (passwords, API keys, customer data, faces) ends up in the AI model's context. This fork removes that path:
 
 - **There is no unredacted screenshot tool.** `pikvm_screenshot` has been replaced by `pikvm_redacted_screenshot`.
+- **Screen text is redacted too.** `pikvm_get_redacted_text` takes the text from PiKVM's OCR endpoint and runs it through the same secret/PII rules and GLiNER model in the sidecar, replacing each sensitive value with `[REDACTED <category>]`. It shares the loaded model with screenshots and fails closed in the same way.
 - **Redaction runs locally.** A Python sidecar process on the MCP server host runs the [screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor) pipeline: RapidOCR text recognition, secret/PII rules and checksums, the GLiNER PII model ([`urchade/gliner_multi_pii-v1`](https://huggingface.co/urchade/gliner_multi_pii-v1)) for names and addresses, YuNet face detection, and QR/barcode detection. Images are not sent to any third-party service for redaction.
 - **Redaction happens at full resolution**, before any downscaling requested via `maxWidth`/`maxHeight`.
 - **Fails closed.** If the model isn't loaded, or the sidecar crashes, times out or returns an error, the tool returns an error — never the unredacted image. `pikvm_load_model` also refuses to start if the GLiNER model can't load, rather than silently falling back to rules-only name/address detection (set `PIKVM_REDACTOR_USE_NER=false` to allow that explicitly).
-- **No detected text is returned.** Tool responses report only per-category counts, never the redacted values.
+- **No detected values are returned.** Tool responses report only per-category counts and the redacted output, never the redacted values.
 - **Auto-calibration** still diffs raw screenshots internally to find the cursor, but those images never leave the server.
 
 ### Limits
 
-Redaction is best-effort. Detection depends on OCR reading the text correctly and on the rules or NER model recognising it as sensitive, so things can be missed — small, low-contrast, stylised or partially obscured text is the most likely to slip through. For example, in testing a private IP address (`192.168.10.45`) was not redacted. It can also over-redact harmless text that looks like a name or token. Treat it as a strong safety net, not a guarantee, and avoid pointing the AI at screens containing material that must never be disclosed. Prefer the default `black box` style — blur and pixelation are not considered safe for text.
+Redaction is best-effort. Detection depends on OCR reading the text correctly and on the rules or NER model recognising it as sensitive, so things can be missed — small, low-contrast, stylised or partially obscured text is the most likely to slip through. For example, in testing a private IP address (`192.168.10.45`) was not redacted. It can also over-redact harmless text that looks like a name or token. Treat it as a strong safety net, not a guarantee, and avoid pointing the AI at screens containing material that must never be disclosed. Prefer the default `black box` style — blur and pixelation are not considered safe for text. The same applies to `pikvm_get_redacted_text`, whose input comes from PiKVM's own OCR (Tesseract) rather than RapidOCR: misread characters can stop a value from being recognised.
 
 ## Installation
 
@@ -161,6 +163,7 @@ The package also exposes a `pikvm-privacy` bin (e.g. after `npm link`), which ca
 
 ### Display
 - **`pikvm_redacted_screenshot`** - Capture current screen as JPEG with sensitive content redacted (optional: maxWidth, maxHeight, quality, style). Requires the redaction model to be loaded
+- **`pikvm_get_redacted_text`** - Read the screen as text via PiKVM's OCR, with sensitive content replaced by `[REDACTED <category>]`. For models without vision (optional: langs, left/top/right/bottom region). Requires the redaction model to be loaded
 - **`pikvm_get_resolution`** - Get screen resolution and valid coordinate ranges
 
 ### Redaction Model
@@ -186,7 +189,7 @@ The package also exposes a `pikvm-privacy` bin (e.g. after `npm link`), which ca
 
 ## Skills (Prompts & Skill Tools)
 
-The server exposes 16 skills that provide structured guidance for agents. Each skill is available via **two discovery paths**:
+The server exposes 17 skills that provide structured guidance for agents. Each skill is available via **two discovery paths**:
 
 - **MCP Prompts** — `prompts/list` / `prompts/get` for clients that support the Prompts capability.
 - **Skill Tools** — `tools/list` / `tools/call` as `skill_*` read-only tools, ensuring visibility in marketplaces (e.g. LobeHub) that index tools only.
@@ -196,6 +199,7 @@ The server exposes 16 skills that provide structured guidance for agents. Each s
 | Prompt Name | Skill Tool | Description |
 |---|---|---|
 | `take-redacted-screenshot` | `skill_take_redacted_screenshot` | Capturing privacy-redacted screenshots with pikvm_redacted_screenshot |
+| `get-redacted-text` | `skill_get_redacted_text` | Reading privacy-redacted screen text with pikvm_get_redacted_text (for models without vision) |
 | `manage-redaction-model` | `skill_manage_redaction_model` | Loading and releasing the redaction model with pikvm_load_model / pikvm_release_model |
 | `check-resolution` | `skill_check_resolution` | Checking screen resolution with pikvm_get_resolution |
 | `type-text` | `skill_type_text` | Typing text with pikvm_type |

@@ -55,10 +55,61 @@ Redaction always runs on the full-resolution capture, so scaling never weakens i
     },
   },
 
+  // ---------- get-redacted-text ----------
+  {
+    name: 'get-redacted-text',
+    description: 'Guide for reading privacy-redacted screen text with pikvm_get_redacted_text (for models without vision)',
+    getMessages() {
+      return [
+        {
+          role: 'assistant',
+          content: {
+            type: 'text',
+            text: `# pikvm_get_redacted_text — Read Redacted Screen Text
+
+## Purpose
+Read the text on the remote machine's screen as plain text, using PiKVM's built-in OCR, with sensitive content replaced by placeholders before it is returned. Use this instead of \`pikvm_redacted_screenshot\` if you cannot view images. It works best for terminals, consoles and other text-heavy screens. There is no tool that returns unredacted text.
+
+Sensitive values are replaced with \`[REDACTED <category>]\`, e.g. \`[REDACTED secrets]\`, \`[REDACTED person]\`, \`[REDACTED network]\`. Redacted categories (configurable by the server operator): secrets (API keys, tokens, passwords), contact details (emails, phone numbers, usernames), financial data, government IDs, IP/MAC addresses, people's names, street addresses and dates of birth.
+
+## Prerequisite
+The redaction model must be loaded. Call \`pikvm_load_model\` once at the start of a session. If it is not loaded, this tool returns an error and no text.
+
+## Parameters
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| langs | string[] | *(PiKVM default)* | Tesseract language codes, e.g. \`["eng"]\` |
+| left, top, right, bottom | number | *(whole screen)* | Region to read, in native screen pixels. Give all four or none |
+
+## Example Calls
+\`\`\`json
+{ "name": "pikvm_get_redacted_text", "arguments": {} }
+\`\`\`
+\`\`\`json
+{
+  "name": "pikvm_get_redacted_text",
+  "arguments": { "left": 0, "top": 800, "right": 1920, "bottom": 1080 }
+}
+\`\`\`
+
+## Tips
+- The response starts with a summary of how many items of each category were redacted, followed by a blank line and the screen text.
+- Treat \`[REDACTED ...]\` placeholders as content you are not meant to read — do not try to infer or reconstruct it.
+- OCR gives text only: no icons, colours or positions. Drive the machine with the keyboard (\`pikvm_type\`, \`pikvm_key\`, \`pikvm_shortcut\`) rather than the mouse.
+- To read just the latest output of a busy terminal, run \`clear\` before your command, or limit the region to the bottom of the screen (use \`pikvm_get_resolution\` for the screen size).
+- OCR can misread characters (e.g. \`l\`/\`1\`, \`O\`/\`0\`). Don't copy exact values like hashes from the screen; redirect them to a file or compare them with a command instead.
+- Redaction is best-effort and may also replace harmless text that looks like a name or secret.
+- Read the screen again **after** each action to verify the result.`,
+          },
+        },
+      ];
+    },
+  },
+
   // ---------- manage-redaction-model ----------
   {
     name: 'manage-redaction-model',
-    description: 'Guide for loading and releasing the screenshot redaction model with pikvm_load_model and pikvm_release_model',
+    description: 'Guide for loading and releasing the redaction model with pikvm_load_model and pikvm_release_model',
     getMessages() {
       return [
         {
@@ -68,7 +119,7 @@ Redaction always runs on the full-resolution capture, so scaling never weakens i
             text: `# pikvm_load_model / pikvm_release_model — Manage the Redaction Model
 
 ## Purpose
-\`pikvm_redacted_screenshot\` relies on OCR, PII entity recognition and face detection models that run in a separate Python process on the MCP server host. These tools control when that process — and the memory it uses (around 2 GB) — exists.
+\`pikvm_redacted_screenshot\` and \`pikvm_get_redacted_text\` rely on OCR, PII entity recognition and face detection models that run in a separate Python process on the MCP server host. These tools control when that process — and the memory it uses (around 2 GB) — exists. One load serves both tools.
 
 ## pikvm_load_model
 Starts the redaction process and loads every model. Takes roughly 10-60 seconds (longer the very first time, when the model weights are downloaded). Safe to call repeatedly — if the model is already loaded it returns immediately.
@@ -76,7 +127,7 @@ Starts the redaction process and loads every model. Takes roughly 10-60 seconds 
 The response reports the load time, the categories that will be redacted, and whether the name/address model is active.
 
 ## pikvm_release_model
-Stops the redaction process and frees its memory. After this, \`pikvm_redacted_screenshot\` returns an error until \`pikvm_load_model\` is called again.
+Stops the redaction process and frees its memory. After this, \`pikvm_redacted_screenshot\` and \`pikvm_get_redacted_text\` return an error until \`pikvm_load_model\` is called again.
 
 ## Example Calls
 \`\`\`json
@@ -87,9 +138,10 @@ Stops the redaction process and frees its memory. After this, \`pikvm_redacted_s
 \`\`\`
 
 ## Tips
-- Load the model at the start of a session (see the setup-session workflow) rather than waiting for the first screenshot to fail.
-- Release the model when you are finished with the remote machine, or when you will not need screenshots for a long time.
-- If the redaction process crashes, the model is marked as unloaded and screenshots fail safely; call \`pikvm_load_model\` again to recover.
+- Load the model at the start of a session (see the setup-session workflow) rather than waiting for the first screenshot or text read to fail.
+- Keep it loaded while you work: loading takes far longer than a redacted screenshot or text read.
+- Release the model when you are finished with the remote machine, or when you will not need to look at the screen for a long time.
+- If the redaction process crashes, the model is marked as unloaded and screenshots and text reads fail safely; call \`pikvm_load_model\` again to recover.
 - Loading fails (rather than silently degrading) if a required model cannot be loaded.`,
           },
         },

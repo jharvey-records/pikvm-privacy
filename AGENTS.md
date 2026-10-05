@@ -85,41 +85,43 @@ The server is configured via environment variables or a `.env` file:
 
 ## MCP Tools Provided
 
-### Display
+### Display / Screen Reading
 1. **`pikvm_redacted_screenshot`** - Capture current screen as JPEG with sensitive content redacted (optional: maxWidth, maxHeight, quality, style)
-2. **`pikvm_get_resolution`** - Get current screen resolution (useful for mouse coordinates)
+2. **`pikvm_get_redacted_text`** - Read screen text via PiKVM OCR with sensitive values replaced by `[REDACTED <category>]`, for models without vision (optional: langs, left/top/right/bottom)
+3. **`pikvm_get_resolution`** - Get current screen resolution (useful for mouse coordinates)
 
 ### Redaction Model
-3. **`pikvm_load_model`** - Start the sidecar and load RapidOCR, GLiNER and YuNet models
-4. **`pikvm_release_model`** - Kill the sidecar, freeing its memory
+4. **`pikvm_load_model`** - Start the sidecar and load RapidOCR, GLiNER and YuNet models (serves both redacting tools)
+5. **`pikvm_release_model`** - Kill the sidecar, freeing its memory
 
 ### Keyboard
-5. **`pikvm_type`** - Type text (handles special chars correctly via keymap)
-6. **`pikvm_key`** - Send key/combo (e.g., Ctrl+Alt+Del)
-7. **`pikvm_shortcut`** - Send keyboard shortcut (multiple keys pressed simultaneously)
+6. **`pikvm_type`** - Type text (handles special chars correctly via keymap)
+7. **`pikvm_key`** - Send key/combo (e.g., Ctrl+Alt+Del)
+8. **`pikvm_shortcut`** - Send keyboard shortcut (multiple keys pressed simultaneously)
 
 ### Mouse
-8. **`pikvm_mouse_move`** - Move mouse cursor (absolute or relative)
-9. **`pikvm_mouse_click`** - Click mouse button
-10. **`pikvm_mouse_scroll`** - Scroll wheel
+9. **`pikvm_mouse_move`** - Move mouse cursor (absolute or relative)
+10. **`pikvm_mouse_click`** - Click mouse button
+11. **`pikvm_mouse_scroll`** - Scroll wheel
 
 ### Calibration
-11. **`pikvm_calibrate`** - Start mouse coordinate calibration (moves cursor to screen center)
-12. **`pikvm_set_calibration`** - Set calibration correction factors after visual verification
-13. **`pikvm_get_calibration`** - Get current calibration state
-14. **`pikvm_clear_calibration`** - Clear calibration, revert to uncalibrated mode
-15. **`pikvm_auto_calibrate`** - Automatically detect the cursor via screenshot diffing and compute calibration factors
+12. **`pikvm_calibrate`** - Start mouse coordinate calibration (moves cursor to screen center)
+13. **`pikvm_set_calibration`** - Set calibration correction factors after visual verification
+14. **`pikvm_get_calibration`** - Get current calibration state
+15. **`pikvm_clear_calibration`** - Clear calibration, revert to uncalibrated mode
+16. **`pikvm_auto_calibrate`** - Automatically detect the cursor via screenshot diffing and compute calibration factors
 
 ## MCP Prompts & Skill Tools
 
-The server exposes 16 skills as both MCP prompts (`prompts/list` / `prompts/get`) and read-only `skill_*` tools (`tools/list` / `tools/call`). The skill tools are auto-generated from prompt definitions for marketplace visibility (e.g. LobeHub indexes tools, not prompts).
+The server exposes 17 skills as both MCP prompts (`prompts/list` / `prompts/get`) and read-only `skill_*` tools (`tools/list` / `tools/call`). The skill tools are auto-generated from prompt definitions for marketplace visibility (e.g. LobeHub indexes tools, not prompts).
 
-**Total tools: 31** (15 `pikvm_*` hardware/redaction tools + 16 `skill_*` guidance tools)
+**Total tools: 33** (16 `pikvm_*` hardware/redaction tools + 17 `skill_*` guidance tools)
 
 ### Tool Guides
 | Prompt | Skill Tool | Covers |
 |---|---|---|
 | `take-redacted-screenshot` | `skill_take_redacted_screenshot` | pikvm_redacted_screenshot |
+| `get-redacted-text` | `skill_get_redacted_text` | pikvm_get_redacted_text |
 | `manage-redaction-model` | `skill_manage_redaction_model` | pikvm_load_model, pikvm_release_model |
 | `check-resolution` | `skill_check_resolution` | pikvm_get_resolution |
 | `type-text` | `skill_type_text` | pikvm_type |
@@ -151,8 +153,9 @@ Implementation: `src/prompts/` (types.ts, tool-guides.ts, workflows.ts, skill-to
 - **Calibration**: Mouse coordinates often need calibration at different resolutions. Prefer `pikvm_auto_calibrate`. The manual workflow is: call `pikvm_calibrate` to move cursor to center, take a redacted screenshot to verify actual position, then call `pikvm_set_calibration` with correction factors. Calibration is automatically invalidated when resolution changes.
 - **Redaction sidecar**: `src/redactor/sidecar.ts` spawns `python/redact_server.py` as a long-lived child process and talks to it over JSON lines on stdin/stdout (stdout is reserved for responses; Python logging goes to stderr). `pikvm_load_model` starts it and runs a warmup that loads RapidOCR, GLiNER (`urchade/gliner_multi_pii-v1`) and YuNet (~12s once weights are cached, longer on first run; around 2 GB working set). Killing the process (`pikvm_release_model`) is the only way to free the models — the redactor has no unload API.
 - **Fail closed**: `pikvm_redacted_screenshot` captures at full resolution, redacts, then downscales if `maxWidth`/`maxHeight` were given. Any error (model not loaded, sidecar crash, timeout, bad response) results in a tool error, never the raw image. Warmup fails if GLiNER can't load unless `PIKVM_REDACTOR_USE_NER=false`.
-- **No detected text in responses**: the sidecar returns only the redacted image and per-category counts; detected values are never sent back to the server or client.
-- **Raw screenshots stay internal**: `pikvm_auto_calibrate` still diffs raw captures to locate the cursor, but those images are never returned to the client. Do not add any code path that returns an unredacted capture.
+- **Redacted text**: `pikvm_get_redacted_text` reads `/api/streamer/snapshot?ocr=1` (PiKVM's Tesseract OCR, fetched as raw text so JSON-looking output isn't parsed) and sends it to the sidecar's `redact_text` op. That op reuses the vendored `rules.find_spans` + `ner.find_entities` per line (the same text path `pipeline.scan` uses per OCR row), plus a plain-text version of the "label-only line, value on next line" secret rule, and replaces each span with `[REDACTED <category>]`. Same fail-closed behaviour as screenshots: any error is a tool error, never the raw OCR text.
+- **No detected values in responses**: the sidecar returns only the redacted image or text and per-category counts; detected values are never sent back to the server or client.
+- **Raw screenshots stay internal**: `pikvm_auto_calibrate` still diffs raw captures to locate the cursor, but those images are never returned to the client. Do not add any code path that returns an unredacted capture or unredacted OCR text.
 - **Python 3.11+** is required for the sidecar (onnxruntime 1.30 has no 3.10 wheels). `npm run setup:redactor` creates `.venv-redactor`, which the server uses by default.
 - Redaction is best-effort OCR-based detection and can miss items (e.g. in testing a private IP `192.168.10.45` was not redacted).
 

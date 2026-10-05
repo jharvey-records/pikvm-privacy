@@ -26,11 +26,13 @@ export const workflowPrompts: PromptDefinition[] = [
 
 Follow these steps to initialize a PiKVM session:
 
+> **If you cannot view images**, use \`pikvm_get_redacted_text\` wherever this workflow takes a screenshot, and skip Step 4 (mouse calibration needs a screenshot) — drive the machine with the keyboard instead.
+
 ## Step 1 — Check Resolution
 Call \`pikvm_get_resolution\` to determine the screen size and confirm the connection is working.
 
 ## Step 2 — Load the Redaction Model
-Call \`pikvm_load_model\`. Screenshots are redacted before you see them, and this loads the models that do it. It can take up to a minute. If it fails, report the error — screenshots will not be available.
+Call \`pikvm_load_model\`. Screenshots and screen text are redacted before you see them, and this loads the models that do it. It can take up to a minute. If it fails, report the error — screenshots will not be available.
 
 ## Step 3 — Take Initial Screenshot
 Call \`pikvm_redacted_screenshot\` to see the current state of the remote machine. This confirms video capture and redaction are working and shows you what's on screen. Black boxes mark redacted sensitive content.
@@ -342,7 +344,7 @@ Use an **Observe-Plan-Act-Verify** loop until the goal is achieved.
 ## The Loop
 
 ### Observe
-Take a screenshot with \`pikvm_redacted_screenshot\`. Identify:
+Take a screenshot with \`pikvm_redacted_screenshot\` (or, if you cannot view images, read the screen with \`pikvm_get_redacted_text\` and prefer keyboard and terminal actions). Identify:
 - What OS / desktop environment is running (Windows, macOS, Linux/GNOME, Linux/KDE, etc.)
 - What applications/windows are currently open
 - Where relevant UI elements are (taskbar, dock, menus, desktop icons)
@@ -375,7 +377,7 @@ Execute the planned action using the appropriate PiKVM tool:
 Take another screenshot to confirm the action had the expected effect. If not, reassess and try an alternative approach.
 
 ## Repeat
-Continue the Observe-Plan-Act-Verify loop until the goal **${goal}** is achieved. If \`pikvm_redacted_screenshot\` reports that the redaction model is not loaded, call \`pikvm_load_model\` and retry. If you get stuck, try a different approach (e.g., use keyboard shortcuts instead of mouse, or use a terminal command instead of the GUI).`,
+Continue the Observe-Plan-Act-Verify loop until the goal **${goal}** is achieved. If \`pikvm_redacted_screenshot\` or \`pikvm_get_redacted_text\` reports that the redaction model is not loaded, call \`pikvm_load_model\` and retry. If you get stuck, try a different approach (e.g., use keyboard shortcuts instead of mouse, or use a terminal command instead of the GUI).`,
           },
         },
       ];

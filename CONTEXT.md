@@ -55,28 +55,33 @@ PiKVM supports multiple keyboard layouts (keymaps) for the paste-as-keys feature
    - Endpoint: `/api/streamer/snapshot`
    - Requires `pikvm_load_model` to have been called; `pikvm_release_model` frees the models
 
-2. **`pikvm_type`**
+2. **`pikvm_get_redacted_text`**
+   - For models without vision: read the screen as text using PiKVM's built-in OCR
+   - Redact the text in the same sidecar (secret/PII rules and GLiNER), replacing each value with `[REDACTED <category>]`
+   - Fails closed like screenshots; shares the model loaded by `pikvm_load_model`
+   - Endpoint: `/api/streamer/snapshot?ocr=1` (optional `ocr_langs`, `ocr_left`/`ocr_top`/`ocr_right`/`ocr_bottom`)
+3. **`pikvm_type`**
    - Type text using paste-as-keys API
    - Handles special characters correctly via server-side keymap
    - Parameters: text, keymap (optional), delay (optional)
    - Endpoint: `/api/hid/print`
 
-3. **`pikvm_key`**
+4. **`pikvm_key`**
    - Send individual key or key combination
    - Parameters: key code, modifiers (ctrl, alt, shift, meta)
    - Endpoint: `/api/hid/events/send_key`
 
-4. **`pikvm_mouse_move`**
+5. **`pikvm_mouse_move`**
    - Move mouse to coordinates
    - Parameters: x, y (absolute or relative)
    - Endpoint: `/api/hid/events/send_mouse_move` or `send_mouse_relative`
 
-5. **`pikvm_mouse_click`**
+6. **`pikvm_mouse_click`**
    - Click mouse button
    - Parameters: button (left, right, middle), x, y (optional)
    - Endpoint: `/api/hid/events/send_mouse_button`
 
-6. **`pikvm_mouse_scroll`**
+7. **`pikvm_mouse_scroll`**
    - Scroll wheel
    - Parameters: delta_x, delta_y
    - Endpoint: `/api/hid/events/send_mouse_wheel`
@@ -93,7 +98,7 @@ The MCP server will need:
 
 TypeScript/Node.js was chosen for the implementation, using the official MCP SDK (`@modelcontextprotocol/sdk`), `undici` for HTTP requests, and `sharp` for screenshot dimension detection and resizing.
 
-Screenshot redaction uses [cleanroom-ai/screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor) (Apache-2.0), vendored as a git submodule and run in a long-lived Python 3.11+ sidecar (`python/redact_server.py`) so its models (RapidOCR, GLiNER `urchade/gliner_multi_pii-v1`, YuNet) stay loaded between screenshots.
+Screenshot redaction uses [cleanroom-ai/screenshot-redactor](https://github.com/cleanroom-ai/screenshot-redactor) (Apache-2.0), vendored as a git submodule and run in a long-lived Python 3.11+ sidecar (`python/redact_server.py`) so its models (RapidOCR, GLiNER `urchade/gliner_multi_pii-v1`, YuNet) stay loaded between screenshots and text reads.
 
 ## Research Sources
 

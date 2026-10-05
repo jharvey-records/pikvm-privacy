@@ -10,13 +10,15 @@ None.
 
 ## Workflow Steps
 
+> **If you cannot view images**, use `pikvm_get_redacted_text` wherever this workflow takes a screenshot, and skip Step 4 (mouse calibration needs a screenshot) — drive the machine with the keyboard instead.
+
 ### Step 1 — Check Resolution
 
 Call `pikvm_get_resolution` to determine the screen size and confirm the connection is working.
 
 ### Step 2 — Load the Redaction Model
 
-Call `pikvm_load_model`. Screenshots are redacted before you see them, and this loads the models that do it. It can take up to a minute. If it fails, report the error — screenshots will not be available.
+Call `pikvm_load_model`. Screenshots and screen text are redacted before you see them, and this loads the models that do it. It can take up to a minute. If it fails, report the error — screenshots will not be available.
 
 ### Step 3 — Take Initial Screenshot
 

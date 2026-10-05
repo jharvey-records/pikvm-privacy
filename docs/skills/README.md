@@ -9,6 +9,7 @@ Individual tool usage guides:
 | Prompt Name | File | Description |
 |---|---|---|
 | `take-redacted-screenshot` | [take-redacted-screenshot.md](take-redacted-screenshot.md) | Capture privacy-redacted screenshots with pikvm_redacted_screenshot |
+| `get-redacted-text` | [get-redacted-text.md](get-redacted-text.md) | Read privacy-redacted screen text with pikvm_get_redacted_text (for models without vision) |
 | `manage-redaction-model` | [manage-redaction-model.md](manage-redaction-model.md) | Load and release the redaction model with pikvm_load_model / pikvm_release_model |
 | `check-resolution` | [check-resolution.md](check-resolution.md) | Check screen resolution with pikvm_get_resolution |
 | `type-text` | [type-text.md](type-text.md) | Type text with pikvm_type |

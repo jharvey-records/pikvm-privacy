@@ -117,7 +117,8 @@ export class PiKVMClient {
     method: string,
     path: string,
     body?: string | object,
-    contentType?: string
+    contentType?: string,
+    asText = false
   ): Promise<T> {
     const url = new URL(`/api${path}`, this.config.host);
 
@@ -151,6 +152,13 @@ export class PiKVMClient {
         .replace(/X-KVMD-Passwd[^,\s"]*/gi, 'X-KVMD-Passwd=[REDACTED]')
         .substring(0, 200); // Limit error message length
       throw new Error(`PiKVM API error ${response.status}: ${sanitizedError}`);
+    }
+
+    if (asText) {
+      if (!(response.headers.get('content-type') || '').startsWith('text/')) {
+        throw new Error(`Expected a text response from PiKVM ${path}`);
+      }
+      return response.text() as Promise<T>;
     }
 
     // Check content type for response handling
@@ -221,6 +229,28 @@ export class PiKVMClient {
       scaleX,
       scaleY,
     };
+  }
+
+  /**
+   * Recognise the text on screen using PiKVM's built-in OCR (Tesseract).
+   * Region coordinates are in native screen pixels.
+   */
+  async ocr(options?: {
+    langs?: string[];
+    left?: number;
+    top?: number;
+    right?: number;
+    bottom?: number;
+  }): Promise<string> {
+    const params = new URLSearchParams({ ocr: '1' });
+    if (options?.langs?.length) params.set('ocr_langs', options.langs.join(','));
+    for (const side of ['left', 'top', 'right', 'bottom'] as const) {
+      const value = options?.[side];
+      if (value !== undefined) params.set(`ocr_${side}`, Math.round(value).toString());
+    }
+
+    // Read as raw text: OCR output that happens to look like JSON must not be parsed
+    return this.request<string>('GET', `/streamer/snapshot?${params}`, undefined, undefined, true);
   }
 
   /**

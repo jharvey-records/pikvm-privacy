@@ -16,7 +16,7 @@ Use an **Observe-Plan-Act-Verify** loop until the goal is achieved.
 
 ### Observe
 
-Take a screenshot with `pikvm_redacted_screenshot`. Identify:
+Take a screenshot with `pikvm_redacted_screenshot` (or, if you cannot view images, read the screen with `pikvm_get_redacted_text` and prefer keyboard and terminal actions). Identify:
 
 - What OS / desktop environment is running (Windows, macOS, Linux/GNOME, Linux/KDE, etc.)
 - What applications/windows are currently open
@@ -57,4 +57,4 @@ Take another screenshot to confirm the action had the expected effect. If not, r
 
 ## Repeat
 
-Continue the Observe-Plan-Act-Verify loop until the goal is achieved. If `pikvm_redacted_screenshot` reports that the redaction model is not loaded, call `pikvm_load_model` and retry. If you get stuck, try a different approach (e.g., use keyboard shortcuts instead of mouse, or use a terminal command instead of the GUI).
+Continue the Observe-Plan-Act-Verify loop until the goal is achieved. If `pikvm_redacted_screenshot` or `pikvm_get_redacted_text` reports that the redaction model is not loaded, call `pikvm_load_model` and retry. If you get stuck, try a different approach (e.g., use keyboard shortcuts instead of mouse, or use a terminal command instead of the GUI).

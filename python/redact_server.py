@@ -11,8 +11,11 @@ Requests:
   {"id": 1, "op": "warmup", "use_ner": true, "categories": [...]}
   {"id": 2, "op": "redact", "image_b64": "...", "categories": [...],
    "style": "black box", "use_ner": true, "custom_terms": []}
+  {"id": 3, "op": "redact_text", "text": "...", "categories": [...],
+   "use_ner": true, "custom_terms": []}
 
-Responses never contain any detected text - only per-category counts.
+Responses never contain any detected values - only redacted output and
+per-category counts.
 """
 
 from __future__ import annotations
@@ -37,8 +40,11 @@ import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from redactor import DEFAULT_CATEGORIES  # noqa: E402
-from redactor import ner, ocr, visual  # noqa: E402
-from redactor.pipeline import NER_CATEGORIES, redact, scan, to_rgb_array  # noqa: E402
+from redactor import ner, ocr, rules, visual  # noqa: E402
+from redactor.layout import OCRLine  # noqa: E402
+from redactor.pipeline import (NER_CATEGORIES, TEXT_CATEGORIES, _merge_line_spans, redact, scan,  # noqa: E402
+                               to_rgb_array)
+from redactor.types import TextSpan  # noqa: E402
 from redactor.redact import STYLES  # noqa: E402
 
 MAX_SIDE = 4096
@@ -105,10 +111,68 @@ def redact_image(req: dict) -> dict:
     }
 
 
-OPS = {"warmup": warmup, "redact": redact_image}
+# NER only reads OCRLine.text, so plain-text lines get a placeholder box.
+_NO_POLYGON = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+
+
+def _label_value_spans(lines: list[str], spans: dict[int, list[TextSpan]]) -> None:
+    """Plain-text version of the image pipeline's labelled_values(): a line that is only a
+    secret label ("Password:") has its value on the next non-empty line."""
+    for i, line in enumerate(lines):
+        if not rules.SECRET_LABEL_ONLY.search(line):
+            continue
+        nxt = next((j for j in range(i + 1, len(lines)) if lines[j].strip()), None)
+        if nxt is None or spans.get(nxt):
+            continue
+        value = lines[nxt]
+        start = len(value) - len(value.lstrip())
+        end = len(value.rstrip())
+        if end - start >= 3:
+            spans[nxt] = [TextSpan(start, end, "PASSWORD_OR_SECRET", "secrets", 0.9, "rule")]
+
+
+def redact_text(req: dict) -> dict:
+    cats = set(_categories(req)) & TEXT_CATEGORIES
+    terms = [t for t in req.get("custom_terms") or [] if isinstance(t, str) and t.strip()]
+    if terms:
+        cats.add("custom")
+
+    t = time.perf_counter()
+    lines = str(req.get("text") or "").replace("\r\n", "\n").split("\n")
+    filled = [i for i, line in enumerate(lines) if line.strip()]
+
+    ner_spans: dict[int, list[TextSpan]] = {}
+    if bool(req.get("use_ner", True)) and cats & NER_CATEGORIES:
+        found = ner.find_entities([OCRLine(lines[i], _NO_POLYGON) for i in filled], cats & NER_CATEGORIES)
+        ner_spans = {filled[k]: v for k, v in found.items()}
+
+    spans = {i: _merge_line_spans(rules.find_spans(lines[i], cats, terms), ner_spans.get(i, []))
+             for i in filled}
+    if "secrets" in cats:
+        _label_value_spans(lines, spans)
+
+    counts: dict[str, int] = {}
+    for i, line_spans in spans.items():
+        line = lines[i]
+        for s in sorted(line_spans, key=lambda s: s.start, reverse=True):
+            line = f"{line[:s.start]}[REDACTED {s.category}]{line[s.end:]}"
+            counts[s.category] = counts.get(s.category, 0) + 1
+        lines[i] = line
+
+    return {
+        "text": "\n".join(lines),
+        "counts": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+        "redact_ms": round((time.perf_counter() - t) * 1000),
+    }
+
+
+OPS = {"warmup": warmup, "redact": redact_image, "redact_text": redact_text}
 
 
 def main() -> None:
+    # The server writes UTF-8; Windows would otherwise decode stdin as the ANSI code page
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
     for line in sys.stdin:
         line = line.strip()
         if not line:

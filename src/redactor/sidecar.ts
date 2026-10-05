@@ -43,6 +43,12 @@ export interface RedactResult {
   redactMs: number;
 }
 
+export interface RedactTextResult {
+  text: string;
+  counts: Record<string, number>;
+  redactMs: number;
+}
+
 interface Pending {
   resolve: (value: Record<string, unknown>) => void;
   reject: (error: Error) => void;
@@ -135,6 +141,29 @@ export class RedactorSidecar {
       buffer: Buffer.from(resp.image_b64, 'base64'),
       width: Number(resp.width),
       height: Number(resp.height),
+      counts: (resp.counts as Record<string, number>) ?? {},
+      redactMs: Number(resp.redact_ms),
+    };
+  }
+
+  async redactText(text: string): Promise<RedactTextResult> {
+    if (!this.loaded) {
+      throw new Error('Redaction model is not loaded');
+    }
+    const resp = await this.send(
+      {
+        op: 'redact_text',
+        text,
+        categories: this.config.categories,
+        use_ner: this.config.useNer,
+      },
+      this.config.redactTimeoutMs,
+    );
+    if (typeof resp.text !== 'string') {
+      throw new Error('Redactor returned no text');
+    }
+    return {
+      text: resp.text,
       counts: (resp.counts as Record<string, number>) ?? {},
       redactMs: Number(resp.redact_ms),
     };

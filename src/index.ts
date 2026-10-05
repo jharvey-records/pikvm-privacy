@@ -119,7 +119,33 @@ function validateEnum<T extends string>(value: unknown, allowed: readonly T[], d
   return defaultValue;
 }
 
-const VALID_BUTTONS = ['left', 'right', 'middle', 'up', 'down'] as const;
+/**
+ * Describe per-category redaction counts, e.g. "Redacted 3 item(s): person 2, network 1."
+ */
+function describeRedactions(counts: Record<string, number>): string {
+  const entries = Object.entries(counts);
+  const total = entries.reduce((sum, [, n]) => sum + n, 0);
+  return total
+    ? `Redacted ${total} item(s): ${entries.map(([c, n]) => `${c.replace('_', ' ')} ${n}`).join(', ')}.`
+    : 'No sensitive content detected.';
+}
+
+/**
+ * Tool error returned when a redacting tool is called before pikvm_load_model
+ */
+function modelNotLoadedError(toolName: string) {
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Error: Redaction model is not loaded. Call pikvm_load_model first, then retry ${toolName}.`,
+      },
+    ],
+    isError: true,
+  };
+}
+
+const VALID_BUTTONS =['left', 'right', 'middle', 'up', 'down'] as const;
 const VALID_KEY_STATES = ['press', 'release', 'click'] as const;
 
 // Define available tools
@@ -151,8 +177,38 @@ const tools: Tool[] = [
     },
   },
   {
+    name: 'pikvm_get_redacted_text',
+    description: 'Read the text on screen using PiKVM\'s built-in OCR, with sensitive content (secrets, API keys, passwords, emails, phone numbers, financial and government IDs, IP addresses, names, street addresses, dates of birth) replaced by "[REDACTED <category>]" before it is returned. Use this instead of pikvm_redacted_screenshot if you cannot view images; best suited to terminal and other text-heavy screens. Returns plain text with no layout coordinates. Requires the redaction model: call pikvm_load_model first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        langs: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tesseract OCR language codes, e.g. ["eng"] (optional, defaults to PiKVM\'s configured languages)',
+        },
+        left: {
+          type: 'number',
+          description: 'Left edge of the region to read, in native screen pixels (optional; give all four edges to limit OCR to a region)',
+        },
+        top: {
+          type: 'number',
+          description: 'Top edge of the region to read, in native screen pixels (optional)',
+        },
+        right: {
+          type: 'number',
+          description: 'Right edge of the region to read, in native screen pixels (optional)',
+        },
+        bottom: {
+          type: 'number',
+          description: 'Bottom edge of the region to read, in native screen pixels (optional)',
+        },
+      },
+    },
+  },
+  {
     name: 'pikvm_load_model',
-    description: 'Load the screenshot redaction models (OCR, PII entity recognition, face detection) into memory. Required before pikvm_redacted_screenshot. Takes roughly 10-60 seconds the first time. Safe to call when already loaded.',
+    description: 'Load the redaction models (OCR, PII entity recognition, face detection) into memory. Required before pikvm_redacted_screenshot and pikvm_get_redacted_text. Takes roughly 10-60 seconds the first time. Safe to call when already loaded.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -160,7 +216,7 @@ const tools: Tool[] = [
   },
   {
     name: 'pikvm_release_model',
-    description: 'Release the screenshot redaction models from memory. pikvm_redacted_screenshot will be unavailable until pikvm_load_model is called again.',
+    description: 'Release the redaction models from memory. pikvm_redacted_screenshot and pikvm_get_redacted_text will be unavailable until pikvm_load_model is called again.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -455,15 +511,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'pikvm_redacted_screenshot': {
         if (!redactor.isLoaded()) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: Redaction model is not loaded. Call pikvm_load_model first, then retry pikvm_redacted_screenshot.',
-              },
-            ],
-            isError: true,
-          };
+          return modelNotLoadedError(name);
         }
 
         const styleArg = validateString(args.style);
@@ -499,12 +547,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           infoText += `, scale factor: ${scale.scaleX.toFixed(2)}x${scale.scaleY.toFixed(2)}`;
         }
         infoText += '). Mouse coordinates from this image will be auto-scaled.';
-
-        const counts = Object.entries(redacted.counts);
-        const total = counts.reduce((sum, [, n]) => sum + n, 0);
-        infoText += total
-          ? `\nRedacted ${total} item(s): ${counts.map(([c, n]) => `${c.replace('_', ' ')} ${n}`).join(', ')}.`
-          : '\nNo sensitive content detected.';
+        infoText += `\n${describeRedactions(redacted.counts)}`;
 
         return {
           content: [
@@ -516,6 +559,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: 'image',
               data: image.toString('base64'),
               mimeType: 'image/jpeg',
+            },
+          ],
+        };
+      }
+
+      case 'pikvm_get_redacted_text': {
+        if (!redactor.isLoaded()) {
+          return modelNotLoadedError(name);
+        }
+
+        const region = {
+          left: validateNumber(args.left, 0),
+          top: validateNumber(args.top, 0),
+          right: validateNumber(args.right, 0),
+          bottom: validateNumber(args.bottom, 0),
+        };
+        const regionValues = Object.values(region).filter((v) => v !== undefined);
+        if (regionValues.length !== 0 && regionValues.length !== 4) {
+          throw new Error('left, top, right and bottom must be given together');
+        }
+
+        // Any failure below throws, so raw OCR text never reaches the agent.
+        const rawText = await pikvm.ocr({ langs: validateStringArray(args.langs), ...region });
+        const redacted = await redactor.redactText(rawText);
+        if (!redacted.text.trim()) {
+          return {
+            content: [{ type: 'text', text: 'No text recognised on screen.' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${describeRedactions(redacted.counts)}\n\n${redacted.text}`,
             },
           ],
         };

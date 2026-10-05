@@ -285,6 +285,14 @@ curl -k -u admin:admin \
 
 **Response:** Returns JPEG image data directly (Content-Type: image/jpeg)
 
+**Example - Get recognised text (OCR):**
+```bash
+curl -k -u admin:admin \
+  "https://<pikvm-ip>/api/streamer/snapshot?ocr=1&ocr_langs=eng"
+```
+
+With `ocr=1` the response is the recognised text (Content-Type: text/plain) instead of an image. `pikvm_get_redacted_text` uses this and redacts the text before returning it.
+
 ### Delete Stored Snapshot
 
 ```
