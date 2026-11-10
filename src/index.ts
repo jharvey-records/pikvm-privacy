@@ -547,6 +547,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           infoText += `, scale factor: ${scale.scaleX.toFixed(2)}x${scale.scaleY.toFixed(2)}`;
         }
         infoText += '). Mouse coordinates from this image will be auto-scaled.';
+        const area = capture.displayArea;
+        if (area.width !== capture.actualWidth || area.height !== capture.actualHeight) {
+          // Report in this image's coordinates
+          const x0 = Math.round(area.x / scale.scaleX);
+          const y0 = Math.round(area.y / scale.scaleY);
+          const x1 = Math.round((area.x + area.width) / scale.scaleX) - 1;
+          const y1 = Math.round((area.y + area.height) / scale.scaleY) - 1;
+          infoText += `\nBlack bars detected: the remote desktop occupies x=${x0}-${x1}, y=${y0}-${y1} in this image. ` +
+            'Use image coordinates as-is; they are mapped onto the desktop automatically.';
+        }
         infoText += `\n${describeRedactions(redacted.counts)}`;
 
         return {
