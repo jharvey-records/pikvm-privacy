@@ -39,7 +39,9 @@ pikvm-privacy/
 │   ├── redact_server.py    # Redaction sidecar (wraps vendor/screenshot-redactor)
 │   └── requirements.txt    # Python dependencies for the sidecar
 ├── scripts/
-│   └── setup-redactor.mjs  # `npm run setup:redactor` - submodule, venv, deps, model weights
+│   ├── setup-redactor.mjs  # `npm run setup:redactor` - submodule, venv, deps, model weights
+│   ├── audit_screenshot.py # `npm run audit:screenshot` - human-only: capture, redact, open locally
+│   └── audit-screenshot.mjs  # Launcher that runs audit_screenshot.py with the venv Python
 ├── vendor/
 │   └── screenshot-redactor/  # Git submodule: cleanroom-ai/screenshot-redactor (do not edit)
 ├── docs/skills/        # Human-readable skill guides (mirrors prompts)
@@ -64,6 +66,9 @@ npm run dev
 
 # Type checking
 npm run typecheck
+
+# Audit redaction: capture + redact the current screen and open it locally (not an MCP tool)
+npm run audit:screenshot -- [--style pixelate] [--out file.jpg] [--no-open]
 ```
 
 ## Configuration

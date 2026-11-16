@@ -64,6 +64,18 @@ The original server returned raw screenshots to the MCP client, which means anyt
 
 Redaction is best-effort. Detection depends on OCR reading the text correctly and on the rules or NER model recognising it as sensitive, so things can be missed — small, low-contrast, stylised or partially obscured text is the most likely to slip through. For example, in testing a private IP address (`192.168.10.45`) was not redacted. It can also over-redact harmless text that looks like a name or token. Treat it as a strong safety net, not a guarantee, and avoid pointing the AI at screens containing material that must never be disclosed. Prefer the default `black box` style — blur and pixelation are not considered safe for text. The same applies to `pikvm_get_redacted_text`, whose input comes from PiKVM's own OCR (Tesseract) rather than RapidOCR: misread characters can stop a value from being recognised.
 
+### Auditing redaction
+
+To see what the model would see before pointing it at a screen, run:
+
+```bash
+npm run audit:screenshot                       # capture, redact, open in your image viewer
+npm run audit:screenshot -- --style pixelate   # try another style
+npm run audit:screenshot -- --out audit.jpg --no-open
+```
+
+[`scripts/audit_screenshot.py`](scripts/audit_screenshot.py) captures the current PiKVM screen and redacts it with the same sidecar code and `PIKVM_*` settings the server uses. It saves the redacted JPEG (by default to a timestamped file in your temp directory), prints the per-category counts and opens the image. It is a local tool for you to use, not an MCP tool, and doesn't need the MCP server to be running. The raw capture is never written to disk, and if redaction fails nothing is saved. It loads the models fresh each run (about 12 seconds).
+
 ## Installation
 
 Requires **Node.js 18+** and **Python 3.11+** (the redactor's `onnxruntime` dependency has no Python 3.10 wheels).

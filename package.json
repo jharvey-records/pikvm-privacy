@@ -12,7 +12,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "setup:redactor": "node scripts/setup-redactor.mjs"
+    "setup:redactor": "node scripts/setup-redactor.mjs",
+    "audit:screenshot": "node scripts/audit-screenshot.mjs"
   },
   "keywords": [
     "mcp",
