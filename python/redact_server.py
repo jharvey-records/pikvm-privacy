@@ -37,18 +37,76 @@ sys.path.insert(0, str(REDACTOR_DIR))
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="[redactor] %(levelname)s %(message)s")
 
 import numpy as np  # noqa: E402
+import regex  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from redactor import DEFAULT_CATEGORIES  # noqa: E402
-from redactor import ner, ocr, rules, visual  # noqa: E402
+from redactor import ner, ocr, pipeline, rules, visual  # noqa: E402
 from redactor.layout import OCRLine  # noqa: E402
-from redactor.pipeline import (NER_CATEGORIES, TEXT_CATEGORIES, _merge_line_spans, redact, scan,  # noqa: E402
-                               to_rgb_array)
+from redactor.pipeline import NER_CATEGORIES, TEXT_CATEGORIES, redact, scan, to_rgb_array  # noqa: E402
 from redactor.types import TextSpan  # noqa: E402
 from redactor.redact import STYLES  # noqa: E402
 
 MAX_SIDE = 4096
 JPEG_QUALITY = 85
+
+
+# --- Overrides of vendored behaviour -------------------------------------------------------
+# vendor/screenshot-redactor is not edited; these replace two module-level functions that
+# pipeline.scan() looks up at call time, so both the image and text paths pick them up.
+
+def _union_line_spans(rule_spans: list[TextSpan], ner_spans: list[TextSpan]) -> list[TextSpan]:
+    """Keep NER spans that overlap a rule span instead of dropping them.
+
+    Upstream discards any NER span touching a rule span. In
+    `.../slayers/Summers, Buffy/1999/Performance Review.xlsx` the random-token rule matches
+    `Buffy/1999/Performance`, so the NER hit `Summers, Buffy` was dropped and `Summers,` stayed
+    visible. Redacting is a union of regions, so overlap is harmless; only spans already fully
+    covered are skipped (to avoid double counting).
+    """
+    kept = list(rule_spans)
+    for s in ner_spans:
+        if not any(k.start <= s.start and s.end <= k.end for k in kept):
+            kept.append(s)
+    return sorted(kept, key=lambda s: (s.start, s.end))
+
+
+_NAME_CHARS = r"[\p{L}\p{M}'’\-]"
+# The first name may start lowercase: OCR misreads case (e.g. "willow"), and NER then trims a
+# lowercase word off the edge of a name, leaving it visible.
+_SURNAME_FIRST = rf"\p{{Lu}}{_NAME_CHARS}+\s*,\s*\p{{L}}{_NAME_CHARS}+(?:\s+\p{{Lu}}{_NAME_CHARS}*\.?)?"
+_SEP = r"[/\\>›»|]"
+#: A whole path / breadcrumb segment of the form "Surname, Firstname [Middle]". Needs a separator
+#: on at least one side so ordinary "Edit, View" text isn't matched.
+PATH_SURNAME_FIRST = regex.compile(
+    rf"(?:(?<={_SEP})\s*({_SURNAME_FIRST})(?=\s*(?:{_SEP}|$))"
+    rf"|^\s*({_SURNAME_FIRST})(?=\s*{_SEP}))"
+)
+
+
+def path_person_spans(text: str) -> list[TextSpan]:
+    """Deterministic backstop for folder names like `/Summers, Buffy/` (NER confidence varies)."""
+    out = []
+    for m in PATH_SURNAME_FIRST.finditer(text):
+        g = 1 if m.group(1) else 2
+        out.append(TextSpan(m.start(g), m.end(g), "PERSON", "person", 0.9, "rule"))
+    return out
+
+
+_vendor_find_spans = rules.find_spans
+
+
+def _find_spans(text: str, categories=None, custom_terms=()) -> list[TextSpan]:
+    spans = _vendor_find_spans(text, categories, custom_terms)
+    if categories is None or "person" in categories:
+        # Added after upstream overlap resolution so a token rule can't swallow the name.
+        spans = _union_line_spans(spans, path_person_spans(text))
+    return spans
+
+
+pipeline._merge_line_spans = _union_line_spans
+rules.find_spans = _find_spans
+_merge_line_spans = _union_line_spans
 
 
 def _categories(req: dict) -> list[str]:
@@ -131,6 +189,21 @@ def _label_value_spans(lines: list[str], spans: dict[int, list[TextSpan]]) -> No
             spans[nxt] = [TextSpan(start, end, "PASSWORD_OR_SECRET", "secrets", 0.9, "rule")]
 
 
+def _replace_spans(line: str, spans: list[TextSpan]) -> str:
+    """Replace spans with `[REDACTED <category>]`; overlapping spans become one placeholder."""
+    groups: list[list] = []  # [start, end, categories]
+    for s in sorted(spans, key=lambda s: s.start):
+        if groups and s.start < groups[-1][1]:
+            groups[-1][1] = max(groups[-1][1], s.end)
+            if s.category not in groups[-1][2]:
+                groups[-1][2].append(s.category)
+        else:
+            groups.append([s.start, s.end, [s.category]])
+    for start, end, cats in reversed(groups):
+        line = f"{line[:start]}[REDACTED {'/'.join(cats)}]{line[end:]}"
+    return line
+
+
 def redact_text(req: dict) -> dict:
     cats = set(_categories(req)) & TEXT_CATEGORIES
     terms = [t for t in req.get("custom_terms") or [] if isinstance(t, str) and t.strip()]
@@ -153,11 +226,9 @@ def redact_text(req: dict) -> dict:
 
     counts: dict[str, int] = {}
     for i, line_spans in spans.items():
-        line = lines[i]
-        for s in sorted(line_spans, key=lambda s: s.start, reverse=True):
-            line = f"{line[:s.start]}[REDACTED {s.category}]{line[s.end:]}"
+        for s in line_spans:
             counts[s.category] = counts.get(s.category, 0) + 1
-        lines[i] = line
+        lines[i] = _replace_spans(lines[i], line_spans)
 
     return {
         "text": "\n".join(lines),
