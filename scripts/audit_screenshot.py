@@ -76,6 +76,9 @@ def fetch_snapshot(host: str, username: str, password: str, verify_ssl: bool) ->
 
 
 def open_file(path: Path) -> None:
+    # TEMP is often an 8.3 short path (C:\Users\ABCDEF~1\...), and the Windows Photos app
+    # silently does nothing when handed one. resolve() expands it to the long path.
+    path = path.resolve()
     if sys.platform == "win32":
         os.startfile(path)  # noqa: S606 - opening a local file we just wrote
     elif sys.platform == "darwin":
@@ -107,6 +110,7 @@ def main() -> int:
     categories = categories or None  # None = all categories, as in the server
 
     out = args.out or Path(tempfile.gettempdir()) / f"pikvm-audit-{datetime.now():%Y%m%d-%H%M%S}.jpg"
+    out = out.resolve()  # absolute long path, so the printed path is the one that gets opened
 
     # Import the sidecar module itself so the audit uses the exact same redaction code.
     sys.path.insert(0, str(ROOT / "python"))
